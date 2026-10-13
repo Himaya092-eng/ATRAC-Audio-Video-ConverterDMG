@@ -34,7 +34,8 @@ jobs:
           pyinstaller --noconfirm --clean --onedir --windowed --name "${{ matrix.name }}" --collect-all customtkinter --collect-all tkinterdnd2 "ATRAC_macOS_DMG_Build_Kit_JA_EN/ATRAC_Converter_CD_Only_${{ matrix.lang }}.pyw"
       - name: Install WiX Toolset
         shell: pwsh
-        run: choco install wixtoolset --version=3.14.1 -y --no-progress
+        run: |
+          if (!(Test-Path "C:\\Program Files (x86)\\WiX Toolset v3.14\\bin\\heat.exe")) { choco install wixtoolset -y --no-progress }
       - name: Generate MSI with WiX
         shell: pwsh
         run: |
