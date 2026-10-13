@@ -1,0 +1,49 @@
+name: Build ATRAC macOS DMG
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'ATRAC_macOS_DMG_Build_Kit_JA_EN/ATRAC_Converter_CD_Only_ja.pyw'
+      - 'ATRAC_macOS_DMG_Build_Kit_JA_EN/ATRAC_Converter_CD_Only_en.pyw'
+      - '.github/workflows/build-macos-dmg.yml'
+jobs:
+  build:
+    runs-on: macos-15
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lang: ja
+            app_name: ATRAC-Japanese
+          - lang: en
+            app_name: ATRAC-English
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller customtkinter pillow tkinterdnd2 mutagen yt-dlp requests
+      - name: Build macOS application
+        run: |
+          pyinstaller --noconfirm --clean --windowed \
+            --name "${{ matrix.app_name }}" \
+            --collect-all customtkinter \
+            --collect-all tkinterdnd2 \
+            "ATRAC_macOS_DMG_Build_Kit_JA_EN/ATRAC_Converter_CD_Only_${{ matrix.lang }}.pyw"
+      - name: Create DMG
+        run: |
+          mkdir -p dmg-root
+          cp -R "dist/${{ matrix.app_name }}.app" dmg-root/
+          ln -s /Applications dmg-root/Applications
+          hdiutil create -volname "${{ matrix.app_name }}" \
+            -srcfolder dmg-root -ov -format UDZO \
+            "${{ matrix.app_name }}.dmg"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.app_name }}-DMG
+          path: ${{ matrix.app_name }}.dmg
