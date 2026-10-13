@@ -1,0 +1,85 @@
+name: Build ATRAC Windows MSI
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/build-windows-msi.yml'
+      - 'ATRAC_macOS_DMG_Build_Kit_JA_EN/*.pyw'
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lang: ja
+            name: ATRAC-Japanese
+            upgrade: 72E4C98C-A4F0-4899-93CB-9F87C032AA31
+          - lang: en
+            name: ATRAC-English
+            upgrade: 2F14BFF2-6CDA-4D99-B238-FA9A6E4CF9D4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller customtkinter pillow tkinterdnd2 mutagen yt-dlp requests
+      - name: Package Windows application
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean --onedir --windowed --name "${{ matrix.name }}" --collect-all customtkinter --collect-all tkinterdnd2 "ATRAC_macOS_DMG_Build_Kit_JA_EN/ATRAC_Converter_CD_Only_${{ matrix.lang }}.pyw"
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: choco install wixtoolset --version=3.14.1 -y --no-progress
+      - name: Generate MSI with WiX
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $wix = 'C:\Program Files (x86)\WiX Toolset v3.14\bin'
+          if (!(Test-Path "$wix\heat.exe")) { throw 'WiX Toolset not found' }
+          $app = '${{ matrix.name }}'
+          $root = (Resolve-Path "dist\$app").Path
+          & "$wix\heat.exe" dir $root -nologo -gg -srd -sfrag -dr INSTALLDIR -cg AppFiles -var var.AppDir -out AppFiles.wxs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          @'
+          <?xml version="1.0" encoding="utf-8"?>
+          <Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+            <Product Id="*" Name="${{ matrix.name }}" Language="1033" Version="3.2.34" Manufacturer="ATRAC Audio Studio" UpgradeCode="${{ matrix.upgrade }}">
+              <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine"/>
+              <MajorUpgrade DowngradeErrorMessage="A newer version is already installed."/>
+              <MediaTemplate EmbedCab="yes"/>
+              <Directory Id="TARGETDIR" Name="SourceDir">
+                <Directory Id="ProgramFilesFolder">
+                  <Directory Id="INSTALLDIR" Name="${{ matrix.name }}"/>
+                </Directory>
+                <Directory Id="ProgramMenuFolder">
+                  <Directory Id="AppMenu" Name="${{ matrix.name }}">
+                    <Component Id="ShortcutComponent" Guid="*">
+                      <Shortcut Id="StartMenuShortcut" Name="${{ matrix.name }}" Target="[INSTALLDIR]${{ matrix.name }}.exe" WorkingDirectory="INSTALLDIR"/>
+                      <RemoveFolder Id="RemoveAppMenu" On="uninstall"/>
+                      <RegistryValue Root="HKCU" Key="Software\ATRAC\${{ matrix.name }}" Name="Installed" Type="integer" Value="1" KeyPath="yes"/>
+                    </Component>
+                  </Directory>
+                </Directory>
+              </Directory>
+              <Feature Id="Main" Title="${{ matrix.name }}" Level="1">
+                <ComponentGroupRef Id="AppFiles"/>
+                <ComponentRef Id="ShortcutComponent"/>
+              </Feature>
+            </Product>
+          </Wix>
+          '@ | Set-Content -Encoding UTF8 Installer.wxs
+          & "$wix\candle.exe" -nologo "-dAppDir=$root" -out "Installer.wixobj" "Installer.wxs"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$wix\candle.exe" -nologo "-dAppDir=$root" -out "AppFiles.wixobj" "AppFiles.wxs"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & "$wix\light.exe" -nologo -out "${{ matrix.name }}.msi" "Installer.wixobj" "AppFiles.wixobj"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.name }}-MSI
+          path: ${{ matrix.name }}.msi
